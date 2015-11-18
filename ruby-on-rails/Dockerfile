@@ -6,15 +6,16 @@ ENV RUBYGEMS_VERSION 2.5.0
 ENV BUNDLER_VERSION 1.10.6
 ENV RAILS_VERSION 4.2.3
 ENV RUBY_DOWNLOAD_SHA256 df795f2f99860745a416092a4004b016ccf77e8b82dec956b120f18bdc71edce
+ENV GEM_HOME /usr/local/bundle
+ENV PATH $GEM_HOME/bin:$PATH
+ENV BUNDLE_APP_CONFIG $GEM_HOME
+ENV DEPLOYER_GROUP=deployer
+ENV DEPLOYER_GID=1001
+ENV DEPLOYER_USER=deployer
+ENV DEPLOYER_UID=1001
 
-# skip installing gem documentation
-RUN echo 'install: --no-document\nupdate: --no-document' >> "$HOME/.gemrc"
-
-# some of ruby's build scripts are written in ruby
-# we purge this later to make sure our final image uses what we just built
 RUN buildDeps=' \
 		bzip2 \
-		ca-certificates \
 		curl \
 		libffi-dev \
 		libgdbm3 \
@@ -33,13 +34,15 @@ RUN buildDeps=' \
 		libxml2-dev \
 		libxslt-dev \
 		make \
-		ruby \
-		nodejs \
-		mysql-client \
+	' \
+	&& serviceDep=' \
+			nodejs \
+			mysql-client \
+			ca-certificates \
 	' \
 	&& set -x \
 	&& apt-get update \
-	&& apt-get install -y --no-install-recommends $buildDeps \
+	&& apt-get install -y --no-install-recommends $buildDeps $serviceDep\
 	&& mkdir -p /usr/src/ruby \
 	&& curl -fSL -o ruby.tar.gz "http://cache.ruby-lang.org/pub/ruby/$RUBY_MAJOR/ruby-$RUBY_VERSION.tar.gz" \
 	&& echo "$RUBY_DOWNLOAD_SHA256 *ruby.tar.gz" | sha256sum -c - \
@@ -50,25 +53,20 @@ RUN buildDeps=' \
 	&& ./configure --disable-install-doc \
 	&& make -j"$(nproc)" \
 	&& make install \
-	&& gem update --system $RUBYGEMS_VERSION \
-	&& rm -r /usr/src/ruby
+	&& rm -r /usr/src/ruby && \
+		groupadd -r $DEPLOYER_GROUP -g $DEPLOYER_GID && \
+		useradd -u $DEPLOYER_UID -r -g $DEPLOYER_GID -d /home/$DEPLOYER_NAME -s /sbin/nologin -c \"Docker user\" $DEPLOYER_NAME && \
+		chown -R $DEPLOYER_GROUP:$DEPLOYER_NAME /home/$DEPLOYER_NAME
 
-# install things globally, for great justice
-ENV GEM_HOME /usr/local/bundle
-ENV PATH $GEM_HOME/bin:$PATH
+USER $DEPLOYER_NAME
+RUN	echo 'install: --no-document' >> "$HOME/.gemrc" && \
+		echo 'update: --no-document' >> "$HOME/.gemrc" && \
+		gem update --no-document $RUBYGEMS_VERSION && \
+		gem install bundler --no-document --version "$BUNDLER_VERSION" && \
+		bundle config --global path "$GEM_HOME" && \
+		bundle config --global bin "$GEM_HOME/bin" && \
+		gem install rails --no-document --version "$RAILS_VERSION"
 
-RUN gem install bundler --version "$BUNDLER_VERSION" \
-	&& bundle config --global path "$GEM_HOME" \
-	&& bundle config --global bin "$GEM_HOME/bin" \
-	&& bundle config build.nokogiri --use-system-libraries
-
-# don't create ".bundle" in all our apps
-ENV BUNDLE_APP_CONFIG $GEM_HOME
-# see update.sh for why all "apt-get install"s have to stay as one long line
-
-# see http://guides.rubyonrails.org/command_line.html#rails-dbconsole
-
-RUN gem install rails --version "$RAILS_VERSION"
-
+USER root
 RUN apt-get purge -y --auto-remove $buildDeps \
 	&& rm -rf /var/lib/apt/lists/*
