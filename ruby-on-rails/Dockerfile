@@ -7,8 +7,12 @@ ENV BUNDLER_VERSION 1.10.6
 ENV RAILS_VERSION 4.2.3
 ENV RUBY_DOWNLOAD_SHA256 df795f2f99860745a416092a4004b016ccf77e8b82dec956b120f18bdc71edce
 
-RUN apt-get update \
-	&& apt-get install -y --no-install-recommends \
+# skip installing gem documentation
+RUN echo 'install: --no-document\nupdate: --no-document' >> "$HOME/.gemrc"
+
+# some of ruby's build scripts are written in ruby
+# we purge this later to make sure our final image uses what we just built
+RUN buildDeps=' \
 		bzip2 \
 		ca-certificates \
 		curl \
@@ -18,14 +22,6 @@ RUN apt-get update \
 		libyaml-dev \
 		procps \
 		zlib1g-dev \
-	&& rm -rf /var/lib/apt/lists/*
-
-# skip installing gem documentation
-RUN echo 'install: --no-document\nupdate: --no-document' >> "$HOME/.gemrc"
-
-# some of ruby's build scripts are written in ruby
-# we purge this later to make sure our final image uses what we just built
-RUN buildDeps=' \
 		autoconf \
 		bison \
 		gcc \
@@ -38,6 +34,8 @@ RUN buildDeps=' \
 		libxslt-dev \
 		make \
 		ruby \
+		nodejs \
+		mysql-client \
 	' \
 	&& set -x \
 	&& apt-get update \
@@ -67,9 +65,6 @@ RUN gem install bundler --version "$BUNDLER_VERSION" \
 # don't create ".bundle" in all our apps
 ENV BUNDLE_APP_CONFIG $GEM_HOME
 # see update.sh for why all "apt-get install"s have to stay as one long line
-RUN apt-get update \
-	&& apt-get install -y nodejs --no-install-recommends \
-	&& apt-get install -y mysql-client --no-install-recommends
 
 # see http://guides.rubyonrails.org/command_line.html#rails-dbconsole
 
